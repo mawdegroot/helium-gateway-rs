@@ -1,6 +1,7 @@
 use crate::{error::RegionError, Error, Result};
 use helium_proto::{
     BlockchainRegionParamV1, GatewayRegionParamsStreamedRespV1, Region as ProtoRegion,
+    RegionSpreading, TaggedSpreading,
 };
 use rust_decimal::Decimal;
 use serde::{de, Deserialize, Deserializer};
@@ -12,6 +13,12 @@ pub struct Region(ProtoRegion);
 impl From<Region> for ProtoRegion {
     fn from(v: Region) -> Self {
         v.0
+    }
+}
+
+impl AsRef<ProtoRegion> for Region {
+    fn as_ref(&self) -> &ProtoRegion {
+        &self.0
     }
 }
 
@@ -158,4 +165,56 @@ impl RegionParams {
             Some(params) => params.region.to_string(),
         }
     }
+
+    pub fn spreading(&self, packet_size: u32) -> Option<&'static str> {
+        // The spreading does not change per channel frequency, so just get one
+        // and do selection depending on max_packet_size
+        self.params
+            .first()
+            .and_then(|param| param.spreading.as_ref())
+            .map(|spreading| &spreading.tagged_spreading)
+            .and_then(|tagged_spreading| {
+                tagged_spreading
+                    .iter()
+                    .find(|ts| ts.max_packet_size >= packet_size)
+            })
+            .and_then(spreading_to_str)
+    }
+
+    pub fn bandwidth(&self) -> Option<u32> {
+        // The bandwidth does not change per channel frequency, so just get one
+        self.params.first().map(|p| p.bandwidth)
+    }
+
+    pub fn datarate(&self, packet_size: u32) -> Option<String> {
+        self.spreading(packet_size).and_then(|spreading| {
+            self.bandwidth()
+                .map(|bw| (bw / 1000) as u32)
+                .map(|bk| format!("{spreading}BW{bk}"))
+        })
+    }
+
+    pub fn channel(&self, frequency: f32) -> Option<i32> {
+        let mut channel: i32 = 0;
+        for param in &self.params {
+            if (param.channel_frequency as f64 - frequency as f64).abs() <= 0.001 {
+                return Some(channel);
+            } else {
+                channel += 1;
+            }
+        }
+        None
+    }
+}
+
+fn spreading_to_str(spreading: &TaggedSpreading) -> Option<&'static str> {
+    RegionSpreading::from_i32(spreading.region_spreading).and_then(|rs| match rs {
+        RegionSpreading::Sf7 => Some("SF7"),
+        RegionSpreading::Sf8 => Some("SF8"),
+        RegionSpreading::Sf9 => Some("SF9"),
+        RegionSpreading::Sf10 => Some("SF10"),
+        RegionSpreading::Sf11 => Some("SF11"),
+        RegionSpreading::Sf12 => Some("SF12"),
+        RegionSpreading::SfInvalid => None,
+    })
 }
