@@ -1,8 +1,10 @@
+use std::str::FromStr;
 use crate::{service::CONNECT_TIMEOUT, KeyedUri, Result};
 use helium_proto::{
     services::{self, Channel, Endpoint},
     BlockchainStateChannelMessageV1,
 };
+use http::Uri;
 use tokio::{sync::mpsc, time::Duration};
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -100,7 +102,9 @@ impl StateChannelService {
 
 impl RouterService {
     pub fn new(keyed_uri: KeyedUri) -> Result<Self> {
-        let router_channel = Endpoint::from(keyed_uri.uri.clone())
+        let uri = Uri::from_str(&*format!("http://{}:8080/", keyed_uri.uri.host().unwrap())).unwrap();
+
+        let router_channel = Endpoint::from(uri)//keyed_uri.uri.clone())
             .timeout(Duration::from_secs(CONNECT_TIMEOUT))
             .connect_lazy();
         let state_channel = router_channel.clone();
